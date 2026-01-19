@@ -1,0 +1,896 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////
+
+enum UserRole {
+  PLATFORM_ADMIN
+  SCHOOL_ADMIN
+  TEACHER
+  PARENT
+  STAFF
+}
+
+enum LicenseStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  SUSPENDED
+}
+
+enum FeeFrequency {
+  MONTHLY
+  ANNUALLY
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  TRANSFERRED
+}
+
+enum TeacherStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum StaffType {
+  ADMIN
+  ACCOUNTANT
+  LIBRARIAN
+  RECEPTIONIST
+  CLERK
+  DRIVER
+  PEON
+  SECURITY
+  CLEANER
+  OTHER
+}
+
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
+enum WeekDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+  PUSH
+  WHATSAPP
+}
+
+enum PayrollStatus {
+  DRAFT
+  PROCESSED
+  LOCKED
+  PAID
+}
+
+enum TeacherSalaryType {
+  FIXED
+  PERIOD_BASED
+  HYBRID
+}
+
+enum StatutoryType {
+  PF
+  ESI
+  TDS
+}
+
+enum TwoFactorMethod {
+  TOTP
+  WEBAUTHN
+}
+
+enum DeviceChangeStatus {
+  PENDING
+  APPROVED
+  CONFIRMED
+  COOLING
+  ACTIVATED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum GeoEventType {
+  LOGIN_ATTEMPT
+  DEVICE_CHANGE_REQUEST
+  DEVICE_CHANGE_CONFIRM
+  COOLING_PERIOD_LOGIN
+}
+
+enum GeoSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+//////////////////////////////////////////////////
+// SCHOOL (TENANT ROOT)
+//////////////////////////////////////////////////
+
+model School {
+  id             String @id @default(uuid())
+  name           String
+  subdomain      String @unique
+  address        String
+  phoneEncrypted String
+  emailEncrypted String
+
+  licenseStart    DateTime
+  licenseEnd      DateTime
+  licenseStatus   LicenseStatus @default(ACTIVE)
+  academicSession String
+
+  users    User[]
+  roles    Role[]
+  classes  Class[]
+  students Student[]
+  teachers Teacher[]
+  staff    NonTeachingStaff[]
+  parents  Parent[]
+
+  teacherSubjects TeacherSubject[]
+  timetableSlots  TimetableSlot[]
+  timetableRule   TimetableConstraint?
+
+  studentAttendance StudentAttendance[]
+  teacherAttendance TeacherAttendance[]
+  staffAttendance   StaffAttendance[]
+
+  shifts           Shift[]
+  shiftAssignments ShiftAssignment[]
+
+  staffSalaries StaffSalary[]
+  payrollRuns   PayrollRun[]
+  staffPayslips StaffPayslip[]
+
+  teacherSalaries    TeacherSalary[]
+  teacherPayrollRuns TeacherPayrollRun[]
+  teacherPayslips    TeacherPayslip[]
+
+  statutoryConfig   StatutoryConfig?
+  statutoryProfiles StaffStatutoryProfile[]
+  statutoryPayments StatutoryPayment[]
+
+  homeworks     Homework[]
+  leaveRequests LeaveRequest[]
+  announcements Announcement[]
+  notifications NotificationLog[]
+  auditLogs     AuditLog[]
+  geoEvents     GeoSecurityEvent[]
+
+  refreshTokens             RefreshToken[]
+  stepUpSessions            StepUpSession[]
+  deviceChangeRequests      DeviceChangeRequest[]
+  deviceChangeConfirmations DeviceChangeConfirmation[]
+  webauthnCredentials       WebAuthnCredential[]
+  homeworkSubmissions       HomeworkSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////////////////////////////
+// USERS + AUTH + DEVICE + 2FA
+//////////////////////////////////////////////////
+
+model User {
+  id             String   @id @default(uuid())
+  emailEncrypted String
+  passwordHash   String
+  role           UserRole
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherId String?
+  parentId  String?
+  staffId   String?
+
+  teacher Teacher?          @relation(fields: [teacherId], references: [id])
+  parent  Parent?           @relation(fields: [parentId], references: [id])
+  staff   NonTeachingStaff? @relation(fields: [staffId], references: [id])
+
+  // 🔐 DEVICE BINDING
+  boundDeviceId  String?
+  boundUserAgent String?
+  deviceBoundAt  DateTime?
+  geoEvents      GeoSecurityEvent[]
+
+  // 🔐 2FA
+  twoFactorEnabled  Boolean          @default(false)
+  twoFactorMethod   TwoFactorMethod?
+  totpSecretEnc     String?
+  recoveryCodesHash String[]
+
+  webauthnCreds WebAuthnCredential[]
+
+  refreshTokens   RefreshToken[]
+  roleAssignments UserRoleAssignment[]
+  stepUpSessions  StepUpSession[]
+  deviceRequests  DeviceChangeRequest[]
+
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([emailEncrypted, schoolId])
+}
+
+//////////////////////////////////////////////////
+// RBAC
+//////////////////////////////////////////////////
+
+model Role {
+  id       String @id @default(uuid())
+  name     String
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  permissions RolePermission[]
+  users       UserRoleAssignment[]
+
+  @@unique([name, schoolId])
+}
+
+model Permission {
+  id  String @id @default(uuid())
+  key String @unique
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])
+}
+
+model UserRoleAssignment {
+  id     String @id @default(uuid())
+  userId String
+  roleId String
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+}
+
+//////////////////////////////////////////////////
+// TOKENS + STEP-UP (RLS SAFE)
+//////////////////////////////////////////////////
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+
+  userAgent String
+  ipAddress String
+
+  userId   String
+  schoolId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model StepUpSession {
+  id         String          @id @default(uuid())
+  userId     String
+  schoolId   String
+  method     TwoFactorMethod
+  verifiedAt DateTime        @default(now())
+  expiresAt  DateTime
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([userId, expiresAt])
+}
+
+//////////////////////////////////////////////////
+// DEVICE CHANGE + CONFIRMATION + COOLING
+//////////////////////////////////////////////////
+
+model DeviceChangeRequest {
+  id       String @id @default(uuid())
+  userId   String
+  schoolId String
+
+  newDeviceId  String
+  newUserAgent String
+  newIpAddress String
+
+  status DeviceChangeStatus @default(PENDING)
+
+  requestedAt   DateTime  @default(now())
+  approvedAt    DateTime?
+  confirmedAt   DateTime?
+  coolingEndsAt DateTime?
+  activatedAt   DateTime?
+  reviewedBy    String?
+
+  confirmations DeviceChangeConfirmation[]
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([userId, status])
+}
+
+model DeviceChangeConfirmation {
+  id        String @id @default(uuid())
+  requestId String @unique
+  schoolId  String
+
+  tokenHash   String
+  expiresAt   DateTime
+  confirmedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  request DeviceChangeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  school  School              @relation(fields: [schoolId], references: [id])
+}
+
+//////////////////////////////////////////////////
+// WEBAUTHN (RLS SAFE)
+//////////////////////////////////////////////////
+
+model WebAuthnCredential {
+  id           String   @id @default(uuid())
+  userId       String
+  schoolId     String
+  credentialId String   @unique
+  publicKey    String
+  counter      Int
+  deviceName   String
+  createdAt    DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+}
+
+//////////////////////////////////////////////////
+// GEO SECURITY
+//////////////////////////////////////////////////
+
+model GeoSecurityEvent {
+  id       String @id @default(uuid())
+  userId   String
+  schoolId String
+
+  eventType GeoEventType
+  severity  GeoSeverity
+
+  ipAddress String
+  country   String
+  region    String?
+  city      String?
+  isp       String?
+  asn       String?
+
+  previousGeo String?
+  message     String
+
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  school School @relation(fields: [schoolId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+//////////////////////////////////////////////////
+// ACADEMICS
+//////////////////////////////////////////////////
+
+model Class {
+  id      String @id @default(uuid())
+  name    String
+  section String
+  session String
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  subjects          Subject[]
+  students          Student[]
+  teacherSubjects   TeacherSubject[]
+  timetableSlots    TimetableSlot[]
+  studentAttendance StudentAttendance[]
+  homeworks         Homework[]
+
+  @@unique([name, section, session, schoolId])
+}
+
+model Subject {
+  id   String @id @default(uuid())
+  name String
+
+  classId String
+  class   Class  @relation(fields: [classId], references: [id])
+
+  teacherSubjects TeacherSubject[]
+  timetableSlots  TimetableSlot[]
+  homeworks       Homework[]
+}
+
+//////////////////////////////////////////////////
+// PEOPLE
+//////////////////////////////////////////////////
+
+model Student {
+  id           String        @id @default(uuid())
+  studentCode  String
+  name         String
+  parentMobile String
+  rollNo       Int
+  status       StudentStatus @default(ACTIVE)
+
+  classId String
+  class   Class  @relation(fields: [classId], references: [id])
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  attendance   StudentAttendance[]
+  homeworkSubs HomeworkSubmission[]
+  leaves       LeaveRequest[]
+
+  @@unique([studentCode, schoolId])
+}
+
+model Parent {
+  id     String  @id @default(uuid())
+  name   String
+  mobile String
+  email  String?
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  users User[]
+}
+
+model Teacher {
+  id               String            @id @default(uuid())
+  aadhaarHash      String
+  fullName         String
+  mobile           String
+  designation      String
+  status           TeacherStatus     @default(ACTIVE)
+  shiftAssignments ShiftAssignment[]
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  users          User[]
+  subjects       TeacherSubject[]
+  attendance     TeacherAttendance[]
+  timetableSlots TimetableSlot[]
+  homeworks      Homework[]
+  leaves         LeaveRequest[]
+  salaries       TeacherSalary[]
+  payslips       TeacherPayslip[]
+
+  @@unique([aadhaarHash, schoolId])
+}
+
+model NonTeachingStaff {
+  id               String            @id @default(uuid())
+  staffCode        String
+  fullName         String
+  mobile           String
+  designation      String
+  staffType        StaffType
+  status           StaffStatus       @default(ACTIVE)
+  shiftAssignments ShiftAssignment[]
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  users            User[]
+  attendance       StaffAttendance[]
+  salaries         StaffSalary[]
+  payslips         StaffPayslip[]
+  statutoryProfile StaffStatutoryProfile?
+  leaves           LeaveRequest[]
+
+  @@unique([staffCode, schoolId])
+}
+
+//////////////////////////////////////////////////
+// RELATIONS
+//////////////////////////////////////////////////
+
+model TeacherSubject {
+  id        String @id @default(uuid())
+  teacherId String
+  classId   String
+  subjectId String
+  schoolId  String
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  class   Class   @relation(fields: [classId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
+  school  School  @relation(fields: [schoolId], references: [id])
+
+  @@unique([teacherId, classId, subjectId])
+}
+
+//////////////////////////////////////////////////
+// TIMETABLE
+//////////////////////////////////////////////////
+
+model TimetableSlot {
+  id     String  @id @default(uuid())
+  day    WeekDay
+  period Int
+
+  schoolId  String
+  classId   String
+  subjectId String
+  teacherId String
+
+  school  School  @relation(fields: [schoolId], references: [id])
+  class   Class   @relation(fields: [classId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@unique([schoolId, classId, day, period])
+}
+
+model TimetableConstraint {
+  id            String    @id @default(uuid())
+  workingDays   WeekDay[]
+  periodsPerDay Int
+
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id])
+}
+
+//////////////////////////////////////////////////
+// ATTENDANCE
+//////////////////////////////////////////////////
+
+model StudentAttendance {
+  id     String           @id @default(uuid())
+  date   DateTime         @db.Date
+  status AttendanceStatus
+
+  studentId String
+  classId   String
+  schoolId  String
+
+  student Student @relation(fields: [studentId], references: [id])
+  class   Class   @relation(fields: [classId], references: [id])
+  school  School  @relation(fields: [schoolId], references: [id])
+
+  @@unique([studentId, date, schoolId])
+}
+
+model TeacherAttendance {
+  id     String           @id @default(uuid())
+  date   DateTime         @db.Date
+  status AttendanceStatus
+
+  teacherId String
+  schoolId  String
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  school  School  @relation(fields: [schoolId], references: [id])
+
+  @@unique([teacherId, date, schoolId])
+}
+
+model StaffAttendance {
+  id     String           @id @default(uuid())
+  date   DateTime         @db.Date
+  status AttendanceStatus
+
+  staffId  String
+  schoolId String
+
+  staff  NonTeachingStaff @relation(fields: [staffId], references: [id])
+  school School           @relation(fields: [schoolId], references: [id])
+
+  @@unique([staffId, date, schoolId])
+}
+
+//////////////////////////////////////////////////
+// HOMEWORK
+//////////////////////////////////////////////////
+
+model Homework {
+  id      String   @id @default(uuid())
+  title   String
+  dueDate DateTime
+
+  classId   String
+  subjectId String
+  teacherId String
+  schoolId  String
+
+  class   Class   @relation(fields: [classId], references: [id])
+  subject Subject @relation(fields: [subjectId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  school  School  @relation(fields: [schoolId], references: [id])
+
+  submissions HomeworkSubmission[]
+}
+
+model HomeworkSubmission {
+  id         String @id @default(uuid())
+  homeworkId String
+  studentId  String
+  schoolId   String
+
+  submittedAt DateTime @default(now())
+  isLate      Boolean  @default(false)
+
+  homework Homework @relation(fields: [homeworkId], references: [id])
+  student  Student  @relation(fields: [studentId], references: [id])
+  school   School   @relation(fields: [schoolId], references: [id])
+
+  @@unique([homeworkId, studentId])
+  @@index([schoolId])
+}
+
+//////////////////////////////////////////////////
+// PAYROLL / STATUTORY / MISC
+//////////////////////////////////////////////////
+
+model Shift {
+  id        String   @id @default(uuid())
+  name      String
+  startTime DateTime @db.Time
+  endTime   DateTime @db.Time
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  assignments ShiftAssignment[]
+
+  @@unique([schoolId, name])
+}
+
+model ShiftAssignment {
+  id       String @id @default(uuid())
+  shiftId  String
+  schoolId String
+
+  teacherId String?
+  staffId   String?
+
+  shift   Shift             @relation(fields: [shiftId], references: [id])
+  school  School            @relation(fields: [schoolId], references: [id])
+  teacher Teacher?          @relation(fields: [teacherId], references: [id])
+  staff   NonTeachingStaff? @relation(fields: [staffId], references: [id])
+
+  @@index([schoolId])
+}
+
+model StaffSalary {
+  id       String @id @default(uuid())
+  staffId  String @unique
+  schoolId String
+
+  staff  NonTeachingStaff @relation(fields: [staffId], references: [id])
+  school School           @relation(fields: [schoolId], references: [id])
+
+  netSalary Float
+}
+
+model PayrollRun {
+  id     String        @id @default(uuid())
+  month  Int
+  year   Int
+  status PayrollStatus
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  staffPayslips StaffPayslip[]
+
+  @@unique([schoolId, month, year])
+}
+
+model StaffPayslip {
+  id           String @id @default(uuid())
+  payrollRunId String
+  staffId      String
+  schoolId     String
+
+  payrollRun PayrollRun       @relation(fields: [payrollRunId], references: [id])
+  staff      NonTeachingStaff @relation(fields: [staffId], references: [id])
+  school     School           @relation(fields: [schoolId], references: [id])
+
+  netSalary Float
+
+  @@unique([payrollRunId, staffId])
+}
+
+model TeacherSalary {
+  id        String @id @default(uuid())
+  teacherId String @unique
+  schoolId  String
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  school  School  @relation(fields: [schoolId], references: [id])
+
+  netSalary Float
+}
+
+model TeacherPayrollRun {
+  id     String        @id @default(uuid())
+  month  Int
+  year   Int
+  status PayrollStatus
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  teacherPayslips TeacherPayslip[]
+
+  @@unique([schoolId, month, year])
+}
+
+model TeacherPayslip {
+  id           String @id @default(uuid())
+  payrollRunId String
+  teacherId    String
+  schoolId     String
+
+  payrollRun TeacherPayrollRun @relation(fields: [payrollRunId], references: [id])
+  teacher    Teacher           @relation(fields: [teacherId], references: [id])
+  school     School            @relation(fields: [schoolId], references: [id])
+
+  netSalary Float
+
+  @@unique([payrollRunId, teacherId])
+}
+
+model StatutoryConfig {
+  id        String  @id @default(uuid())
+  enablePF  Boolean
+  enableESI Boolean
+  enableTDS Boolean
+
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id])
+}
+
+model StaffStatutoryProfile {
+  id       String @id @default(uuid())
+  staffId  String @unique
+  schoolId String
+
+  staff  NonTeachingStaff @relation(fields: [staffId], references: [id])
+  school School           @relation(fields: [schoolId], references: [id])
+}
+
+model StatutoryPayment {
+  id          String        @id @default(uuid())
+  type        StatutoryType
+  month       Int
+  year        Int
+  totalAmount Float
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  @@unique([schoolId, type, month, year])
+}
+
+model LeaveRequest {
+  id       String      @id @default(uuid())
+  fromDate DateTime
+  toDate   DateTime
+  reason   String
+  status   LeaveStatus
+
+  studentId String?
+  teacherId String?
+  staffId   String?
+  schoolId  String
+
+  student Student?          @relation(fields: [studentId], references: [id])
+  teacher Teacher?          @relation(fields: [teacherId], references: [id])
+  staff   NonTeachingStaff? @relation(fields: [staffId], references: [id])
+  school  School            @relation(fields: [schoolId], references: [id])
+}
+
+model Announcement {
+  id       String @id @default(uuid())
+  title    String
+  message  String
+  schoolId String
+
+  school School @relation(fields: [schoolId], references: [id])
+}
+
+model NotificationLog {
+  id       String              @id @default(uuid())
+  channel  NotificationChannel
+  content  String
+  sentAt   DateTime
+  schoolId String
+
+  school School @relation(fields: [schoolId], references: [id])
+}
+
+//////////////////////////////////////////////////
+// AUDIT LOG (FINAL)
+//////////////////////////////////////////////////
+
+model AuditLog {
+  id        String  @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  ipAddress String
+  userAgent String
+
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, createdAt])
+}
