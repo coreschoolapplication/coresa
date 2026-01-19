@@ -364,7 +364,7 @@ model DeviceChangeRequest {
   activatedAt   DateTime?
   reviewedBy    String?
 
-  confirmations DeviceChangeConfirmation[]
+  confirmations DeviceChangeConfirmation?
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   school School @relation(fields: [schoolId], references: [id])
@@ -525,7 +525,7 @@ model Teacher {
   timetableSlots TimetableSlot[]
   homeworks      Homework[]
   leaves         LeaveRequest[]
-  salaries       TeacherSalary[]
+  salary         TeacherSalary?
   payslips       TeacherPayslip[]
 
   @@unique([aadhaarHash, schoolId])
@@ -546,7 +546,7 @@ model NonTeachingStaff {
 
   users            User[]
   attendance       StaffAttendance[]
-  salaries         StaffSalary[]
+  salary           StaffSalary?
   payslips         StaffPayslip[]
   statutoryProfile StaffStatutoryProfile?
   leaves           LeaveRequest[]
@@ -633,7 +633,7 @@ model TeacherAttendance {
   schoolId  String
 
   teacher Teacher @relation(fields: [teacherId], references: [id])
-  school  School  @relation(fields: [schoolId], references: [id])
+  school  School @relation(fields: [schoolId], references: [id])
 
   @@unique([teacherId, date, schoolId])
 }
